@@ -32,8 +32,12 @@ import {
   Share2,
   Info,
   Wrench,
+  FileSpreadsheet,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 import { QuickShareTab } from './BookingDetailModal';
+import { downloadBookingsCSV } from '../services/googleSheetsService';
 
 interface BookingsViewProps {
   db: RyokoDatabase;
@@ -146,13 +150,25 @@ export const BookingsView: React.FC<BookingsViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onOpenNewBooking}
-          className="self-start sm:self-auto px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-950 flex items-center gap-1.5 transition active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Booking Baru</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => downloadBookingsCSV(db.bookings)}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-400 font-bold text-xs border border-emerald-800/60 shadow-sm flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+            title="Unduh data booking format CSV untuk dibuka di Google Sheets atau Excel (100% Gratis)"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Ekspor CSV (Sheets)</span>
+          </button>
+
+          <button
+            onClick={onOpenNewBooking}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-950 flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Booking Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Tabs & Search Bar */}

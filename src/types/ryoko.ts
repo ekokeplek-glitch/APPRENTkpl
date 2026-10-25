@@ -198,6 +198,9 @@ export interface RentalSettings {
   auditLogs: AuditLogItem[];
   // Integrasi Kolaborasi Eksternal (TASK-013 & TASK-014)
   googleSheetsWebhookUrl?: string;
+  googleSpreadsheetId?: string;
+  googleSpreadsheetTitle?: string;
+  googleSpreadsheetUrl?: string;
   telegramBotToken?: string;
   telegramAdminChatId?: string;
   // Integrasi Sinkronisasi GitHub (GitHub Sync)

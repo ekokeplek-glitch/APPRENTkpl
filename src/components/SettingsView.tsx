@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   RyokoDatabase,
   RentalSettings,
@@ -39,6 +39,9 @@ import {
   Copy,
   Check,
   Terminal,
+  RefreshCw,
+  Code2,
+  Sparkles,
 } from 'lucide-react';
 import { copyText } from '../utils/clipboard';
 import {
@@ -87,6 +90,111 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [includeBackupSecrets, setIncludeBackupSecrets] = useState<boolean>(false);
   const [copiedRepoUrl, setCopiedRepoUrl] = useState<boolean>(false);
   const [copiedGitCmd, setCopiedGitCmd] = useState<boolean>(false);
+
+  // 100% Free Google Apps Script Webhook State
+  const [showScriptGuide, setShowScriptGuide] = useState<boolean>(false);
+  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+
+  const googleAppsScriptCode = `/**
+ * RyokoRent Google Sheets Sync Script (100% GRATIS)
+ * Cara Pasang:
+ * 1. Buka spreadsheet baru di https://sheets.new
+ * 2. Menu Ekstensi -> Apps Script
+ * 3. Hapus kode lama, tempel kode ini, klik Simpan (Ctrl+S)
+ * 4. Klik 'Deploy' -> 'New deployment' -> Pilih type 'Web app'
+ *    - Execute as: Me (akun Anda)
+ *    - Who has access: Anyone (Siapa saja)
+ * 5. Salin Web app URL dan masukkan ke menu Pengaturan RyokoRent
+ */
+
+const SHEET_NAME = 'Data_Transaksi';
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: 'ONLINE',
+    app: 'RyokoRent Free Sync',
+    timestamp: new Date().toISOString()
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    const postData = JSON.parse(e.postData.contents);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(SHEET_NAME);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_NAME);
+      const headers = [
+        'No Booking', 'Waktu Pemesanan', 'Status Sewa', 'Nama Penyewa',
+        'Nomor WhatsApp', 'No Darurat', 'Alamat KTP', 'ID Pendukung',
+        'Alamat Saat Ini', 'ID Sosmed', 'Model Motor', 'Kode Unit Fisik',
+        'Jumlah Helm', 'Durasi Sewa', 'Jadwal Mulai', 'Jadwal Selesai',
+        'Lokasi Antar', 'Lokasi Jemput', 'Kurir Pengantar', 'Total Estimasi (Rp)',
+        'Denda (Rp)', 'Catatan Khusus', 'Status Review Admin', 'Opsi Tindak Lanjut',
+        'Aksi Disetujui', 'Waktu Sinkron'
+      ];
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#0e7490').setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+    }
+    
+    if (postData.action === 'BULK_UPSERT' && Array.isArray(postData.rows)) {
+      postData.rows.forEach(function(row) {
+        upsertRow(sheet, row);
+      });
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: 'Berhasil menyinkronkan ' + postData.rows.length + ' transaksi!'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      message: 'OK'
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function upsertRow(sheet, row) {
+  const data = sheet.getDataRange().getValues();
+  let foundRowIndex = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === row.noBooking) {
+      foundRowIndex = i + 1;
+      break;
+    }
+  }
+  
+  const values = [
+    row.noBooking, row.waktuPemesanan, row.statusSewa, row.namaPenyewa,
+    row.nomorWa, row.noDarurat, row.alamatKtp, row.jenisIdPendukung,
+    row.alamatSaatIni, row.idSosmed, row.modelMotor, row.kodeUnitFisik,
+    row.jumlahHelm, row.durasiSewa, row.jadwalMulai, row.jadwalSelesai,
+    row.lokasiAntar, row.lokasiJemput, row.kurirPengantar, row.totalEstimasiBiaya,
+    row.dendaKeterlambatan, row.catatanKhusus, row.statusReviewAdmin,
+    row.opsiTindakLanjut, row.aksiTerakhirDisetujui, row.timestampSync
+  ];
+  
+  if (foundRowIndex > 0) {
+    sheet.getRange(foundRowIndex, 1, 1, values.length).setValues([values]);
+  } else {
+    sheet.appendRow(values);
+  }
+}`;
+
+  const handleCopyScript = async () => {
+    const ok = await copyText(googleAppsScriptCode);
+    if (ok) {
+      setCopiedScript(true);
+      setTimeout(() => setCopiedScript(false), 3000);
+    }
+  };
 
   const repoUrl = 'https://github.com/ekokeplek-glitch/APPRENTkeplek';
   const repoGitUrl = 'https://github.com/ekokeplek-glitch/APPRENTkeplek.git';
@@ -450,57 +558,130 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         )}
 
-        {/* Sub-Card 1: Google Sheets Collaboration */}
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
+        {/* Sub-Card 1: Google Sheets 100% GRATIS (Google Apps Script Webhook & Ekspor CSV) */}
+        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-900 pb-3">
             <div className="flex items-center gap-2 font-bold text-slate-200">
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>1. Google Sheets: Simpan Data 13-Field, Review, Opsi & Aksi</span>
+              <span>1. Google Sheets: Sinkronisasi Otomatis Google Apps Script & Ekspor CSV</span>
             </div>
-            <span className="text-[11px] text-slate-400">
-              Antrean Offline: <strong className="text-emerald-400">{getOfflineSheetsQueueCount()}</strong>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/80">
+              <Sparkles className="w-3 h-3 text-emerald-400" />
+              <span>100% Gratis Selamanya (Tanpa Biaya / Tanpa Kartu Kredit)</span>
             </span>
           </div>
 
           <p className="text-slate-400 text-[11px] leading-relaxed">
-            Mengekspor seluruh 13 field data penyewa ke baris spreadsheet Google Sheets. Memungkinkan Owner/Admin mereview data (Status: Pending/Approved/Rejected), memilih opsi operasional (Siapkan Unit, Tugaskan Kurir, Kirim Tagihan), dan mencatat aksi yang disetujui.
+            Menyimpan seluruh 26 kolom data booking ke Google Sheets secara <strong>100% GRATIS</strong> menggunakan <strong>Google Apps Script Webhook</strong> resmi tanpa akun pengembang, tanpa Google Cloud Console, dan tanpa API berbayar. Anda juga dapat mengunduh berkas CSV instan.
           </p>
 
-          <div className="space-y-1.5">
-            <label className="block text-slate-300 font-semibold text-[11px]">
-              URL Webhook Google Apps Script (Opsional untuk Sinkronisasi Otomatis):
-            </label>
-            <input
-              type="url"
-              value={googleSheetsUrl}
-              onChange={e => setGoogleSheetsUrl(e.target.value)}
-              placeholder="https://script.google.com/macros/s/.../exec"
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
-            />
-            <span className="text-[10px] text-slate-500">
-              Lihat panduan dan salin kode Apps Script di <code>docs/GOOGLE_SHEETS_INTEGRATION.md</code>.
-            </span>
-          </div>
+          <div className="space-y-2 bg-slate-900/70 p-3.5 rounded-xl border border-slate-800">
+            <div className="flex items-center justify-between">
+              <label className="block text-slate-300 font-semibold text-[11px]">
+                URL Webhook Google Apps Script:
+              </label>
+              <span className="text-[10px] text-slate-400">
+                Antrean Offline: <strong className="text-emerald-400">{getOfflineSheetsQueueCount()}</strong>
+              </span>
+            </div>
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              onClick={handleDownloadCSV}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold transition flex items-center gap-1.5 border border-slate-700"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Unduh CSV 13-Field (Siap Impor Sheets)</span>
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="url"
+                value={googleSheetsUrl}
+                onChange={e => setGoogleSheetsUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={handleSyncGoogleSheets}
+                disabled={isSyncingSheets}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-95 text-xs shrink-0 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{isSyncingSheets ? 'Menyinkronkan...' : 'Sinkronkan ke Google Sheets'}</span>
+              </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={handleSyncGoogleSheets}
-              disabled={isSyncingSheets}
-              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold transition flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{isSyncingSheets ? 'Menyinkronkan...' : 'Sinkronkan ke Google Sheets'}</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setShowScriptGuide(prev => !prev)}
+                className="text-xs text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1 cursor-pointer"
+              >
+                <Code2 className="w-3.5 h-3.5" />
+                <span>{showScriptGuide ? 'Tutup Panduan Pasang Script' : 'Lihat Cara Pasang Script Gratis di Google Sheets (3 Langkah) ↓'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadCSV}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-semibold transition flex items-center gap-1.5 border border-slate-700 text-xs active:scale-95 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh CSV 13-Field (Excel/Sheets)</span>
+              </button>
+            </div>
+
+            {/* Collapsible Free Apps Script Setup Guide */}
+            {showScriptGuide && (
+              <div className="mt-3 p-3.5 bg-slate-950 rounded-xl border border-cyan-800/50 space-y-3 animate-fadeIn">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                    <span className="text-emerald-400 font-black">✓</span>
+                    <span>Cara Pasang Google Apps Script Gratis (Cukup 1 Kali Setup):</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyScript}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-900/50 hover:bg-cyan-800/60 text-cyan-200 text-[11px] font-semibold flex items-center gap-1 border border-cyan-700/60 transition cursor-pointer"
+                  >
+                    {copiedScript ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedScript ? 'Kode Tersalin!' : 'Salin Kode Script'}</span>
+                  </button>
+                </div>
+
+                <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-300">
+                  <li>
+                    Buka spreadsheet baru di Google Drive Anda melalui tautan:{' '}
+                    <a
+                      href="https://sheets.new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan-400 underline font-semibold"
+                    >
+                      sheets.new
+                    </a>.
+                  </li>
+                  <li>
+                    Di menu spreadsheet, klik <strong>Ekstensi (Extensions)</strong> &gt; <strong>Apps Script</strong>.
+                  </li>
+                  <li>
+                    Hapus kode bawaan, lalu tempel kode script di bawah ini, kemudian tekan <strong>Simpan</strong> (ikon disket 💾 atau Ctrl+S).
+                  </li>
+                  <li>
+                    Klik tombol biru <strong>Deploy</strong> (Terapkan) di kanan atas &gt; pilih <strong>New deployment</strong>.
+                  </li>
+                  <li>
+                    Pilih type <strong>Web app</strong> (klik ikon roda gigi ⚙️ di sebelah Select type).
+                    <ul className="list-disc pl-4 mt-0.5 text-slate-400">
+                      <li>Execute as: <strong>Me</strong> (akun Google Anda)</li>
+                      <li>Who has access: <strong>Anyone</strong> (Siapa saja)</li>
+                    </ul>
+                  </li>
+                  <li>
+                    Klik <strong>Deploy</strong> &gt; berikan izin akses &gt; Salin <strong>Web app URL</strong> yang berakhiran <code>/exec</code> ke kolom URL di atas!
+                  </li>
+                </ol>
+
+                <div className="relative">
+                  <pre className="p-3 bg-slate-900 rounded-lg text-[10px] font-mono text-cyan-200 overflow-x-auto max-h-48 border border-slate-800">
+                    {googleAppsScriptCode}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
