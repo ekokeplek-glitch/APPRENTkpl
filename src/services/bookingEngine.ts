@@ -12,19 +12,40 @@ import {
 export const TURNAROUND_BUFFER_SECONDS = 60 * 60; // 60 menit = 3600 detik (BR-04 revisi)
 
 /**
- * Redaksi NIK 16 digit otomatis (Snippet F - F-14)
- * Menyamarkan NIK 16 digit menjadi ************XXXX tanpa merusak nomor HP atau string lain
+ * Pola regex NIK 16-digit ketat (S12-A6)
+ * Hanya mencocokkan 16 digit berturutan atau pengelompokan 6-6-4 / 4-4-4-4
+ */
+const NIK_STRICT_REGEX = /(?<!\d)(?:\d{16}|\d{6}[ .-]\d{6}[ .-]\d{4}|\d{4}[ .-]\d{4}[ .-]\d{4}[ .-]\d{4})(?!\d)/g;
+
+/**
+ * Validasi struktur NIK Indonesia (S12-A6):
+ * - 2 digit pertama: Kode provinsi (11 - 96)
+ * - Digit 7-8: Tanggal lahir 01-31 (atau +40 untuk perempuan: 41-71)
+ * - Digit 9-10: Bulan lahir 01-12
+ */
+export function isPlausibleNik(digits: string): boolean {
+  if (digits.length !== 16) return false;
+  const prov = parseInt(digits.slice(0, 2), 10);
+  const dayRaw = parseInt(digits.slice(6, 8), 10);
+  const day = dayRaw > 40 ? dayRaw - 40 : dayRaw;
+  const mon = parseInt(digits.slice(8, 10), 10);
+  return prov >= 11 && prov <= 96 && day >= 1 && day <= 31 && mon >= 1 && mon <= 12;
+}
+
+/**
+ * Redaksi NIK 16 digit otomatis (Snippet F - F-14 / S12-A6)
+ * Menyamarkan NIK 16 digit valid menjadi ************XXXX tanpa merusak nomor telepon darurat
  */
 export const redactNik = (s: string): string => {
   if (!s) return '';
-  return s.replace(/(?<!\d)(?:\d[ .-]?){15}\d(?!\d)/g, m => {
+  return s.replace(NIK_STRICT_REGEX, m => {
     const digits = m.replace(/\D/g, '');
-    return '************' + digits.slice(-4);
+    return isPlausibleNik(digits) ? '************' + digits.slice(-4) : m;
   });
 };
 
 /**
- * Pembersih teks standar dengan redaksi NIK otomatis (F-14)
+ * Pembersih teks standar dengan redaksi NIK otomatis (F-14 / S12)
  */
 export function sanitizeTextNoNik(text: string): string {
   if (!text) return '';
@@ -32,11 +53,13 @@ export function sanitizeTextNoNik(text: string): string {
 }
 
 /**
- * Deteksi pola NIK 16 digit
+ * Deteksi pola NIK 16 digit valid
  */
 export function containsNikPattern(text: string): boolean {
   if (!text) return false;
-  return /(?<!\d)(?:\d[ .-]?){15}\d(?!\d)/.test(text);
+  const matches = text.match(NIK_STRICT_REGEX);
+  if (!matches) return false;
+  return matches.some(m => isPlausibleNik(m.replace(/\D/g, '')));
 }
 
 /**

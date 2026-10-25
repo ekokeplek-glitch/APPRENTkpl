@@ -24,6 +24,7 @@ import {
 } from '../services/whatsappService';
 import { parseWhatsAppBookingChat, STANDARD_BOOKING_TEMPLATE_TEXT } from '../utils/whatsappChatParser';
 import { copyText } from '../utils/clipboard';
+import { toWaNumber } from '../utils/phone';
 import {
   X,
   PlusCircle,
@@ -239,7 +240,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
       noBooking: newBookingNumber,
       status: chosenUnit ? 'ryokou_approved' : 'ryokou_booking',
       nama: nama.trim(),
-      nomorWa: nomorWa.trim(),
+      nomorWa: toWaNumber(nomorWa) || nomorWa.trim(),
       alamatKtp: alamatKtp.trim(),
       jenisIdPendukung,
       alamatSaatIni: alamatSaatIni.trim(),

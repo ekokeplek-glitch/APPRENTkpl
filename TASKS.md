@@ -17,6 +17,7 @@ Definisi task. **Status task tidak ditulis di sini**; status ada di `SESSION_STA
 * **FASE 8: Quick Share WhatsApp, Recharts Visualizer & Laporan Okupansi Bulanan** (`TASK-015`, `TASK-016`, `TASK-017`)
 * **FASE 9: Integritas Jadwal, Mesin Transisi Terproteksi & Redaksi Keamanan** (`TASK-018`, `TASK-019`, `TASK-020`)
 * **FASE 10: Robustness Integrasi Eksternal & Optimasi Mobile PWA** (`TASK-021`, `TASK-022`)
+* **FASE 11: Remediasi Integritas ZLCE, Parser WA & Hardening Sistem** (`TASK-023`)
 
 ---
 

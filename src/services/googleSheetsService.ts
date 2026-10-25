@@ -4,15 +4,14 @@
  * antrean offline, serta pemetaan 13 field booking standar ditambah kolom Review, Opsi, dan Aksi.
  */
 
-import { BookingRecord, RyokoDatabase } from '../types/ryoko';
+import {
+  BookingRecord,
+  RyokoDatabase,
+  ReviewStatus,
+  OperationalOption,
+} from '../types/ryoko';
 
-export type ReviewStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'NEED_DOCS';
-export type OperationalOption =
-  | 'Siapkan Unit Garasi'
-  | 'Tugaskan Kurir Antar'
-  | 'Kirim Tagihan DP'
-  | 'Jadwalkan Servis Bengkel'
-  | 'Selesai & Arsip';
+export type { ReviewStatus, OperationalOption };
 
 export interface GoogleSheetsRowData {
   noBooking: string;
@@ -79,27 +78,29 @@ const OFFLINE_QUEUE_KEY = 'ryoko_sheets_offline_queue';
  * Petakan BookingRecord ke objek baris Google Sheets (termasuk 13 field + review + opsi + aksi)
  */
 export function formatBookingToSheetsRow(booking: BookingRecord): GoogleSheetsRowData {
-  // Tentukan default review status berdasarkan status transaksi
-  let reviewStatus: ReviewStatus = 'PENDING_REVIEW';
-  let opsi: OperationalOption = 'Siapkan Unit Garasi';
-  let aksi = 'Menunggu Verifikasi Admin';
+  // Gunakan status review & opsi yang telah diatur admin di aplikasi, atau deduksi dinamis jika belum diset
+  let reviewStatus: ReviewStatus = booking.reviewStatus || 'PENDING_REVIEW';
+  let opsi: OperationalOption = booking.opsiTindakLanjut || 'Siapkan Unit Garasi';
+  let aksi = booking.aksiTerakhirDisetujui || 'Menunggu Verifikasi Admin';
 
-  if (booking.status === 'ryokou_approved') {
-    reviewStatus = 'APPROVED';
-    opsi = 'Tugaskan Kurir Antar';
-    aksi = `Unit ${booking.snapshotKodeUnit || 'Garasi'} Disetujui & Dikunci`;
-  } else if (booking.status === 'ryokou_disewa') {
-    reviewStatus = 'APPROVED';
-    opsi = 'Tugaskan Kurir Antar';
-    aksi = `Unit Sedang Dibawa Tamu (${booking.kurirPengantar || 'Kurir Standby'})`;
-  } else if (booking.status === 'ryokou_diservis') {
-    reviewStatus = 'NEED_DOCS';
-    opsi = 'Jadwalkan Servis Bengkel';
-    aksi = 'Unit Dialihkan ke Bengkel Rekanan';
-  } else if (booking.status === 'ryokou_selesai') {
-    reviewStatus = 'APPROVED';
-    opsi = 'Selesai & Arsip';
-    aksi = `Unit Selesai & Diterima Kembali (Denda: Rp ${booking.dendaNominal?.toLocaleString('id-ID') || 0})`;
+  if (!booking.reviewStatus) {
+    if (booking.status === 'ryokou_approved') {
+      reviewStatus = 'APPROVED';
+      opsi = 'Tugaskan Kurir Antar';
+      aksi = `Unit ${booking.snapshotKodeUnit || 'Garasi'} Disetujui & Dikunci`;
+    } else if (booking.status === 'ryokou_disewa') {
+      reviewStatus = 'APPROVED';
+      opsi = 'Tugaskan Kurir Antar';
+      aksi = `Unit Sedang Dibawa Tamu (${booking.kurirPengantar || 'Kurir Standby'})`;
+    } else if (booking.status === 'ryokou_diservis') {
+      reviewStatus = 'NEED_DOCS';
+      opsi = 'Jadwalkan Servis Bengkel';
+      aksi = 'Unit Dialihkan ke Bengkel Rekanan';
+    } else if (booking.status === 'ryokou_selesai') {
+      reviewStatus = 'APPROVED';
+      opsi = 'Selesai & Arsip';
+      aksi = `Unit Selesai & Diterima Kembali (Denda: Rp ${booking.dendaNominal?.toLocaleString('id-ID') || 0})`;
+    }
   }
 
   return {

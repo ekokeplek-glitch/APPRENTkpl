@@ -20,6 +20,9 @@ interface AndroidTopBarProps {
   isMobileDeviceView: boolean;
   activeUser: AppUser;
   allUsers: AppUser[];
+  hasGoogleSyncConfigured?: boolean;
+  isGoogleSyncing?: boolean;
+  lastGoogleSyncTime?: string;
   onSwitchUser: (userId: string) => void;
   onOpenUserManagement?: () => void;
   onToggleDeviceView: () => void;
@@ -34,6 +37,9 @@ export const AndroidTopBar: React.FC<AndroidTopBarProps> = ({
   isMobileDeviceView,
   activeUser,
   allUsers,
+  hasGoogleSyncConfigured = false,
+  isGoogleSyncing = false,
+  lastGoogleSyncTime,
   onSwitchUser,
   onOpenUserManagement,
   onToggleDeviceView,
@@ -102,6 +108,28 @@ export const AndroidTopBar: React.FC<AndroidTopBarProps> = ({
             >
               <Bell className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
               <span className="font-bold">{pendingBookingsCount}</span>
+            </div>
+          )}
+
+          {/* Google Sheets Cloud Storage Status Badge */}
+          {hasGoogleSyncConfigured && (
+            <div
+              className="hidden sm:flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border bg-slate-800/80 border-slate-700/70 text-slate-300 select-none"
+              title={
+                isGoogleSyncing
+                  ? 'Menyimpan & menyinkronkan data ke Google Sheets...'
+                  : `Google Sheets aktif sebagai penyimpan data cloud. Terakhir: ${lastGoogleSyncTime || 'Baru saja'}`
+              }
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  isGoogleSyncing ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'
+                }`}
+              />
+              <span className="hidden lg:inline text-[10px] text-slate-400 font-medium">Google Cloud:</span>
+              <span className={`text-[10px] font-bold ${isGoogleSyncing ? 'text-amber-300' : 'text-emerald-400'}`}>
+                {isGoogleSyncing ? 'Menyimpan...' : 'Tersinkron'}
+              </span>
             </div>
           )}
 

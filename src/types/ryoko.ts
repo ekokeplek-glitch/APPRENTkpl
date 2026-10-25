@@ -166,7 +166,19 @@ export interface BookingRecord {
   dendaKeterangan: string;
   // Unit Exchange History (D-19)
   riwayatTukarUnit?: UnitExchangeLog[];
+  // Status Review & Tindak Lanjut Operasional (Dikelola langsung di App, tersimpan ke Google)
+  reviewStatus?: ReviewStatus;
+  opsiTindakLanjut?: OperationalOption;
+  aksiTerakhirDisetujui?: string;
 }
+
+export type ReviewStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'NEED_DOCS';
+export type OperationalOption =
+  | 'Siapkan Unit Garasi'
+  | 'Tugaskan Kurir Antar'
+  | 'Kirim Tagihan DP'
+  | 'Jadwalkan Servis Bengkel'
+  | 'Selesai & Arsip';
 
 export interface RentalPackage {
   id: number;
@@ -198,9 +210,8 @@ export interface RentalSettings {
   auditLogs: AuditLogItem[];
   // Integrasi Kolaborasi Eksternal (TASK-013 & TASK-014)
   googleSheetsWebhookUrl?: string;
-  googleSpreadsheetId?: string;
-  googleSpreadsheetTitle?: string;
-  googleSpreadsheetUrl?: string;
+  autoSyncGoogleSheets?: boolean; // Sinkronisasi otomatis ke Google setiap ada aksi di app
+  lastGoogleSheetsSyncTime?: string;
   telegramBotToken?: string;
   telegramAdminChatId?: string;
   // Integrasi Sinkronisasi GitHub (GitHub Sync)

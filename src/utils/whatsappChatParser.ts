@@ -15,15 +15,18 @@
  * 12. Model unit
  * 13. Jumlah helm
  *
- * Menerapkan spesifikasi Snippet B audit @kepek:
- * - Pemecahan label hanya pada titik dua pertama (splitLabel)
- * - Ekstraksi tanggal ISO dan teks lokal Indonesia dengan validasi kalender nyata (validYmd)
- * - Ekstraksi waktu 24-jam akurat (extractTime)
- * - Menghilangkan 100% fallback statis/palsu (bebas hardcoded 24-25 Okt, Begawan, Scoopy)
- * - Mengembalikan daftar `warnings` untuk field yang gagal terbaca
+ * Menerapkan spesifikasi S10 & S11 perbaikan audit:
+ * - P1: "12 malam" -> 00:00 (bukan 12:00 siang)
+ * - P2: Angka tanggal (mis. "5 November") tidak diekstrak sebagai jam tanpa kata jam/pukul
+ * - P3: Dukungan format tanpa titik dua ("Jam pengembalian 3" -> 15:00)
+ * - P4: Kontak darurat dicek sebelum nama; nama darurat tidak menimpa nama penyewa
+ * - P5: Dukungan tanggal bertitik (24.10.2026 15.40) & pembacaan baris berikutnya (multiline)
+ * - P6: Nilai "sama" pada penjemputan otomatis menyalin lokasi pengantaran
+ * - N1 & N2: Terintegrasi dengan utils/phone.ts (toWaNumber) tanpa fallback nomor palsu
  */
 
 import { SupportIdType } from '../types/ryoko';
+import { toWaNumber } from './phone';
 
 export interface ParsedBookingChat {
   nama: string;
@@ -65,38 +68,42 @@ Silakan salin & lengkapi data pemesanan di bawah ini:
 _Kirimkan format yang sudah diisi ke nomor admin Ryoko Rent_`;
 
 /**
- * Normalisasi nomor telepon ke format internasional 628... (F-21)
- * Menangani +62, 08, dan salah input +62 08...
+ * Normalisasi nomor telepon ke format internasional 628... (S11)
+ * Menggunakan Single Source of Truth toWaNumber dari phone.ts
  */
 export function normalizePhoneNumber(phone: string): string {
-  if (!phone) return '';
-  let clean = phone.trim().replace(/[^\d+]/g, '');
-  if (clean.startsWith('+')) clean = clean.slice(1);
-  if (clean.startsWith('6208')) {
-    clean = '628' + clean.slice(4);
-  } else if (clean.startsWith('08')) {
-    clean = '628' + clean.slice(2);
-  } else if (clean.startsWith('8')) {
-    clean = '628' + clean.slice(1);
-  }
-  return clean;
+  return toWaNumber(phone) || '';
 }
 
 /**
- * Pemisahan label hanya pada titik dua pertama (Snippet B)
- * Mencegah pemotongan nilai waktu seperti "15:40"
+ * Pemisahan label pada titik dua pertama atau penanda baris jadwal (Snippet B / S10 P3)
+ * Mencegah pemotongan nilai waktu seperti "15:40" dan menangani baris tanpa titik dua
  */
 export function splitLabel(line: string): { label: string; value: string } | null {
   const i = line.indexOf(':');
-  if (i < 0) return null;
-  return {
-    label: line
-      .slice(0, i)
+  if (i >= 0) {
+    const rawLabel = line.slice(0, i);
+    const cleanLabel = rawLabel
       .replace(/^[^\p{L}0-9]+/u, '')
+      .replace(/^\d+\s*[.)-]\s*/, '')
       .trim()
-      .toLowerCase(),
-    value: line.slice(i + 1).trim(),
-  };
+      .toLowerCase();
+    return {
+      label: cleanLabel,
+      value: line.slice(i + 1).trim(),
+    };
+  }
+
+  // Fallback untuk baris tanpa titik dua (P3), contoh: "Jam pengembalian 3", "↙️ Jam pengembalian 3", "Jam ambil 15.00"
+  const noColonMatch = line.match(/^[^\p{L}\d]*(jam\s+(?:ambil|pengembalian|kembali)|jadwal\s+(?:mulai|selesai))\s+(.+)$/iu);
+  if (noColonMatch) {
+    return {
+      label: noColonMatch[1].trim().toLowerCase(),
+      value: noColonMatch[2].trim(),
+    };
+  }
+
+  return null;
 }
 
 const MONTHS: Record<string, number> = {
@@ -134,7 +141,8 @@ export function validYmd(y: number, mo: number, d: number): string | null {
 }
 
 /**
- * Ekstraksi tanggal dengan prioritas ISO (YYYY-MM-DD), slash/dash (DD/MM/YYYY), dan nama bulan
+ * Ekstraksi tanggal dengan prioritas ISO (YYYY-MM-DD), slash/dash/dot (DD/MM/YYYY, DD.MM.YYYY), dan nama bulan
+ * P5: Mendukung pemisah titik (misal 24.10.2026)
  */
 export function extractDate(
   text: string,
@@ -149,15 +157,15 @@ export function extractDate(
     if (ymd) return { ymd, rest: cut(text, m) };
   }
 
-  // 2. Format DD/MM/YYYY atau DD-MM-YYYY atau DD/MM
-  m = text.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
+  // 2. Format DD/MM/YYYY atau DD-MM-YYYY atau DD.MM.YYYY atau DD/MM atau DD.MM (P5)
+  m = text.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/);
   if (m) {
     const y = m[3] ? (+m[3] < 100 ? 2000 + +m[3] : +m[3]) : nowYear;
     const ymd = validYmd(y, +m[2], +m[1]);
     if (ymd) return { ymd, rest: cut(text, m) };
   }
 
-  // 3. Format nama bulan Indonesia: "24 Oktober 2026" atau "24 okt"
+  // 3. Format nama bulan Indonesia: "24 Oktober 2026" atau "24 okt" atau "5 November"
   m = text.toLowerCase().match(/\b(\d{1,2})\s+([a-z]{3,10})\.?(?:\s+(\d{4}))?\b/);
   if (m) {
     const monthKey = m[2].slice(0, 3);
@@ -173,7 +181,9 @@ export function extractDate(
 }
 
 /**
- * Ekstraksi waktu jam dan menit 24 jam (mendukung 15:40, 15.40, 3 sore, jam 3)
+ * Ekstraksi waktu jam dan menit 24 jam (S10 P1 & P2)
+ * P1: "12 malam" diekstrak menjadi 00:00 (bukan 12:00)
+ * P2: Angka tanggal seperti "5" pada "5 November" tidak dianggap jam
  */
 export function extractTime(text: string): string | null {
   if (!text) return null;
@@ -183,26 +193,44 @@ export function extractTime(text: string): string | null {
   let suffix: string | undefined;
   let bare = false;
 
+  // 1. Format dengan menit: 15:40, 15.40, 09.30 malam, dll.
   let m = t.match(/\b(\d{1,2})[.:](\d{2})\s*(pagi|siang|sore|malam|am|pm)?\b/);
   if (m) {
     h = +m[1];
     min = +m[2];
     suffix = m[3];
   } else {
-    m = t.match(/\b(?:jam\s*)?(\d{1,2})\s*(pagi|siang|sore|malam|am|pm)?\b/);
-    if (!m) return null;
-    h = +m[1];
-    suffix = m[2];
-    bare = true;
+    // 2. Format dengan kata eksplisit 'jam' atau 'pukul': "jam 3", "pukul 15", "jam 12 malam"
+    m = t.match(/\b(?:jam|pukul)\s*(\d{1,2})\s*(pagi|siang|sore|malam|am|pm)?\b/);
+    if (m) {
+      h = +m[1];
+      suffix = m[2];
+      bare = true;
+    } else {
+      // 3. Format angka dengan penanda waktu: "3 sore", "12 malam", "8 pagi"
+      m = t.match(/\b(\d{1,2})\s*(pagi|siang|sore|malam|am|pm)\b/);
+      if (m) {
+        h = +m[1];
+        suffix = m[2];
+        bare = true;
+      } else {
+        return null; // Angka biasa tanpa penanda jam TIDAK diekstrak sebagai waktu (P2)
+      }
+    }
   }
 
-  if ((suffix === 'sore' || suffix === 'malam' || suffix === 'pm') && h < 12) {
+  // P1: Penanganan "12 malam" -> 00:00 (tengah malam)
+  if (suffix === 'malam' && h === 12) {
+    h = 0;
+  } else if ((suffix === 'sore' || suffix === 'malam' || suffix === 'pm') && h < 12) {
     h += 12;
   }
+  
   if (suffix === 'am' && h === 12) {
     h = 0;
   }
-  // Standar rental: angka tunggal 1..6 tanpa suffix diasumsikan sore (e.g. "jam 3" -> 15:00)
+  
+  // Standar rental: angka tunggal 1..6 jika didahului 'jam' tanpa suffix diasumsikan sore (e.g. "jam 3" -> 15:00)
   if (bare && !suffix && h >= 1 && h <= 6) {
     h += 12;
   }
@@ -221,10 +249,10 @@ export function parseTime(text: string): string {
 }
 
 /**
- * Parser Utama Chat WhatsApp Bebas Nilai Bawaan (Snippet B)
+ * Parser Utama Chat WhatsApp Bebas Nilai Bawaan (S10)
  */
 export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
-  const lines = rawText
+  const rawLines = rawText
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean);
@@ -252,27 +280,50 @@ export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
   let jumlahHelm = 2;
   let jumlahHelmExplicit = false;
 
-  for (const line of lines) {
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
     const parsedLine = splitLabel(line);
     const label = parsedLine?.label || '';
-    const value = parsedLine?.value || '';
+    let value = parsedLine?.value || '';
 
-    // Jika line memiliki format label : value
-    if (parsedLine && value) {
-      // 1. Nama
-      if (label.includes('nama') && !label.includes('motor')) {
-        nama = value;
+    // P5: Dukungan nilai di baris berikutnya jika baris label bernilai kosong
+    if (label && !value && i + 1 < rawLines.length) {
+      const nextLine = rawLines[i + 1];
+      if (!splitLabel(nextLine)) {
+        value = nextLine.trim();
+        i++; // lewati baris nilai yang telah diambil
+      }
+    }
+
+    if (label && value) {
+      // 1. P4: Periksa label darurat / emergency TERLEBIH DAHULU agar tidak tertimpa ke nama penyewa
+      if (label.includes('darurat') || label.includes('emergency')) {
+        teleponDarurat = value;
         continue;
       }
 
-      // 2. Alamat sesuai KTP
+      // 2. P4: Nama penyewa (nama darurat telah tersaring di atas; first-wins)
+      if (
+        (label === 'nama' ||
+          label === 'nama lengkap' ||
+          label === 'nama penyewa' ||
+          label === 'nama pemesan' ||
+          label.startsWith('nama ') ||
+          label.endsWith(' nama')) &&
+        !label.includes('motor')
+      ) {
+        if (!nama) nama = value;
+        continue;
+      }
+
+      // 3. Alamat sesuai KTP
       if (label.includes('alamat sesuai ktp') || label.includes('alamat ktp')) {
         alamatKtp = value;
         continue;
       }
 
-      // 3. ID Pendukung
-      if (label.includes('id pendukung') || label.includes('identitas') || label.startsWith('3.')) {
+      // 4. ID Pendukung (P6)
+      if (label.includes('id pendukung') || label.includes('identitas') || label.startsWith('3.') || label === 'id') {
         const valUpper = value.toUpperCase();
         if (valUpper.includes('KTM')) {
           idPendukung = 'KTM';
@@ -295,14 +346,14 @@ export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
         } else if (valUpper.includes('KTP')) {
           idPendukung = 'SIM_C';
           idPendukungDetected = true;
-          warnings.push('ID Pendukung tertulis KTP; gunakan kartu sekunder (SIM C/KTM/NPWP/BPJS).');
+          warnings.push('ID Pendukung tertulis KTP; telah dialihkan ke SIM C (KTP merupakan identitas utama wajib).');
         } else {
           idPendukungDetected = true;
         }
         continue;
       }
 
-      // 4. Alamat saat ini (rumah/kos/hotel)
+      // 5. Alamat saat ini (rumah/kos/hotel)
       if (
         label.includes('alamat saat ini') ||
         label.includes('rumah/kos/hotel') ||
@@ -312,7 +363,7 @@ export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
         continue;
       }
 
-      // 5. ID Sosmed
+      // 6. ID Sosmed
       if (
         label.includes('id sosmed') ||
         label.includes('sosmed') ||
@@ -323,21 +374,15 @@ export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
         continue;
       }
 
-      // 6. No telp utama
+      // 7. No telp utama
       if (
-        (label.includes('no telp') ||
-          label.includes('nomor telepon') ||
-          label.includes('no wa') ||
-          label.includes('telepon')) &&
-        !label.includes('darurat')
+        label.includes('no telp') ||
+        label.includes('nomor telepon') ||
+        label.includes('no wa') ||
+        label.includes('telepon') ||
+        label === 'hp'
       ) {
         nomorWa = value;
-        continue;
-      }
-
-      // 7. No telp darurat
-      if (label.includes('darurat') || label.includes('emergency')) {
-        teleponDarurat = value;
         continue;
       }
 
@@ -383,9 +428,14 @@ export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
         continue;
       }
 
-      // 11. Lokasi penjemputan
+      // 11. Lokasi penjemputan (P6: nilai 'sama' menyalin lokasi pengantaran)
       if (label.includes('lokasi penjemputan') || label.includes('lokasi pengembalian') || label.includes('jemput')) {
-        lokasiPengembalian = value;
+        const lowerVal = value.trim().toLowerCase();
+        if (/^(sama|sama\s+dengan\s+.*|sda|s\.d\.a|seperti\s+di\s+atas)$/i.test(lowerVal)) {
+          lokasiPengembalian = lokasiDelivery || value;
+        } else {
+          lokasiPengembalian = value;
+        }
         continue;
       }
 
@@ -458,89 +508,36 @@ export function parseWhatsAppBookingChat(rawText: string): ParsedBookingChat {
     warnings.push('Nomor WhatsApp belum terdeteksi dari chat.');
   }
   if (!jenisMotorKeyword) {
-    warnings.push('Tipe model unit motor belum terdeteksi dari chat.');
+    warnings.push('Model unit motor belum terdeteksi dari chat.');
   }
 
-  // Catatan rapi
-  const noteParts: string[] = [];
-  if (alamatKtp) noteParts.push(`KTP: ${alamatKtp}`);
-  if (alamatSaatIni) noteParts.push(`Alamat Saat Ini: ${alamatSaatIni}`);
-  if (idSosmed && idSosmed !== '-') noteParts.push(`Sosmed: ${idSosmed}`);
-  if (teleponDarurat) noteParts.push(`Kontak Darurat: ${teleponDarurat}`);
-  noteParts.push(`${jumlahHelm} Helm SNI`);
+  const catatanRapi = [
+    `Penyewa: ${nama || '-'}`,
+    `WA: ${toWaNumber(nomorWa) || nomorWa || '-'}`,
+    `ID Pendukung: ${idPendukungDetected ? idPendukung : 'SIM C (Belum terverifikasi)'}`,
+    `Mulai: ${jamTanggalMulai ? jamTanggalMulai.replace('T', ' ') + ' WIB' : 'Perlu diatur'}`,
+    `Selesai: ${jamTanggalSelesai ? jamTanggalSelesai.replace('T', ' ') + ' WIB' : 'Perlu diatur'}`,
+    `Unit Motor: ${jenisMotorKeyword || 'Belum dipilih'}`,
+    `Helm: ${jumlahHelm} Helm`,
+    `Antar: ${lokasiDelivery || 'Ambil di Pool'}`,
+    `Jemput: ${lokasiPengembalian || 'Kembali di Pool'}`,
+  ].join(' | ');
 
   return {
-    nama: nama.trim(),
-    alamatKtp: alamatKtp.trim(),
+    nama,
+    alamatKtp,
     idPendukung,
-    alamatSaatIni: alamatSaatIni.trim(),
-    idSosmed: idSosmed.trim(),
-    nomorWa: normalizePhoneNumber(nomorWa),
-    teleponDarurat: teleponDarurat.trim(),
+    alamatSaatIni,
+    idSosmed,
+    nomorWa: toWaNumber(nomorWa) || nomorWa,
+    teleponDarurat,
     jamTanggalMulai,
     jamTanggalSelesai,
-    lokasiDelivery: lokasiDelivery.trim(),
-    lokasiPengembalian: lokasiPengembalian.trim() || lokasiDelivery.trim(),
-    jenisMotorKeyword: jenisMotorKeyword.trim(),
+    lokasiDelivery,
+    lokasiPengembalian,
+    jenisMotorKeyword,
     jumlahHelm,
-    catatanRapi: noteParts.join(' | '),
+    catatanRapi,
     warnings,
   };
-}
-
-/**
- * Format teks resmi WhatsApp untuk konfirmasi order / serah terima berbasis 13 field
- */
-export function formatOfficialBookingResponse(booking: {
-  noBooking: string;
-  nama: string;
-  alamatKtp?: string;
-  idPendukung?: string;
-  alamatSaatIni?: string;
-  idSosmed?: string;
-  nomorWa: string;
-  noTelpDarurat?: string;
-  motorNama: string;
-  kodeUnit?: string;
-  tglMulai: string;
-  jamMulai: string;
-  tglSelesai: string;
-  jamSelesai: string;
-  lokasiAntar: string;
-  lokasiJemput: string;
-  totalHarga: number;
-  jumlahHelm?: number;
-}): string {
-  const helm = booking.jumlahHelm || 2;
-  const unitInfo = booking.kodeUnit
-    ? `${booking.motorNama} [${booking.kodeUnit}]`
-    : booking.motorNama;
-
-  return `🛵 *KONFIRMASI BOOKING RYOKO RENT MOTOR MALANG & BATU* 🛵
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Halo Kak *${booking.nama}*, terima kasih telah memesan di Ryoko Rent!
-Berikut rekap rincian pemesanan resmi Anda:
-
-📋 *DETAIL PEMESANAN (13 POIN BAKU):*
-1. Nama              : *${booking.nama}*
-2. Alamat KTP        : ${booking.alamatKtp || '-'}
-3. ID Pendukung      : ${booking.idPendukung || 'SIM C'}
-4. Alamat Saat Ini   : 🏠 *${booking.alamatSaatIni || booking.lokasiAntar}*
-5. ID Sosmed         : ${booking.idSosmed || '-'}
-6. No. Telp / WA     : *${booking.nomorWa}*
-7. No. Telp Darurat  : ${booking.noTelpDarurat || '-'}
-8. Jadwal Mulai      : ↗️ *${booking.tglMulai}*, Pukul *${booking.jamMulai} WIB*
-9. Jadwal Selesai    : ↙️ *${booking.tglSelesai}*, Pukul *${booking.jamSelesai} WIB*
-10. Lokasi Antar     : 📍 *${booking.lokasiAntar}*
-11. Lokasi Jemput    : 📍 *${booking.lokasiJemput}*
-12. Model Unit       : 🏍️ *${unitInfo}*
-13. Jumlah Helm      : 🪖 *${helm} Helm SNI* (+ Jas Hujan & Phone Holder)
-
-💰 *RINCIAN BIAYA & STATUS:*
-• Total Biaya : *Rp ${booking.totalHarga.toLocaleString('id-ID')}*
-• Status Sewa : *TERJADWAL / SIAP ANTAR*
-
-⚠️ *KETENTUAN:*
-• Tunjukkan E-KTP asli & dokumen pendukung saat kurir menyerahkan unit di lokasi.
-• Terima kasih dan selamat beraktivitas di Malang & Batu bersama Ryoko Rent! 🌟`;
 }

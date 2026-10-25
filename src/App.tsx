@@ -44,6 +44,7 @@ import { PWAInstallModal } from './components/PWAInstallModal';
 import { DigitalReceiptModal } from './components/DigitalReceiptModal';
 import { BookingDetailModal, QuickShareTab } from './components/BookingDetailModal';
 import { MonthlyReportView } from './components/MonthlyReportView';
+import { bulkSyncBookingsToGoogleSheets } from './services/googleSheetsService';
 
 export const App: React.FC = () => {
   // Database State in LocalStorage
@@ -113,7 +114,13 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Sync state helper with QuotaExceeded error propagation (F-12)
+  // Google Sheets Cloud Sync State (100% Free Apps Script Background Data Store)
+  const [isGoogleSyncing, setIsGoogleSyncing] = useState<boolean>(false);
+  const [lastGoogleSyncTime, setLastGoogleSyncTime] = useState<string>(
+    () => db.settings.lastGoogleSheetsSyncTime || ''
+  );
+
+  // Sync state helper with QuotaExceeded error propagation (F-12) & Background Google Cloud Sync
   const updateDatabaseState = useCallback((newDb: RyokoDatabase, actionName?: string, detail?: string) => {
     let dbToPersist = newDb;
     if (actionName && detail) {
@@ -124,7 +131,48 @@ export const App: React.FC = () => {
       alert(`Peringatan Kuota Penyimpanan: ${saveRes.message}`);
     }
     setDb({ ...dbToPersist });
+
+    // Background Google Sheets Synchronization (Admin does zero actions in Google Sheets)
+    const webhookUrl = dbToPersist.settings.googleSheetsWebhookUrl?.trim();
+    if (webhookUrl && webhookUrl.startsWith('http') && dbToPersist.settings.autoSyncGoogleSheets !== false) {
+      setIsGoogleSyncing(true);
+      bulkSyncBookingsToGoogleSheets(dbToPersist.bookings, webhookUrl)
+        .then(res => {
+          if (res.success) {
+            const timeNow =
+              new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) +
+              ' WIB';
+            setLastGoogleSyncTime(timeNow);
+          }
+        })
+        .catch(err => {
+          console.warn('Background Google Sheets Sync Error:', err);
+        })
+        .finally(() => {
+          setIsGoogleSyncing(false);
+        });
+    }
   }, []);
+
+  // Update booking record directly from in-app review/operational modal
+  const handleUpdateBooking = useCallback(
+    (updatedBooking: BookingRecord) => {
+      const updatedBookings = db.bookings.map(b => (b.id === updatedBooking.id ? updatedBooking : b));
+      const newDb: RyokoDatabase = {
+        ...db,
+        bookings: updatedBookings,
+      };
+      updateDatabaseState(
+        newDb,
+        'Perbarui Review & Operasional Google Cloud',
+        `Booking #${updatedBooking.noBooking} diperbarui via App (Review: ${updatedBooking.reviewStatus || 'PENDING'}, Opsi: ${updatedBooking.opsiTindakLanjut || '-'})`
+      );
+      setSelectedDetailBooking(prev =>
+        prev && prev.booking.id === updatedBooking.id ? { ...prev, booking: updatedBooking } : prev
+      );
+    },
+    [db, updateDatabaseState]
+  );
 
   // Multi-tab cross synchronization listener (F-12)
   useEffect(() => {
@@ -1068,6 +1116,9 @@ export const App: React.FC = () => {
           isMobileDeviceView={isMobileDeviceView}
           activeUser={activeUser}
           allUsers={db.users || []}
+          hasGoogleSyncConfigured={Boolean(db.settings.googleSheetsWebhookUrl?.trim())}
+          isGoogleSyncing={isGoogleSyncing}
+          lastGoogleSyncTime={lastGoogleSyncTime}
           onSwitchUser={handleSwitchUser}
           onOpenUserManagement={() => setActiveTab('users')}
           onToggleDeviceView={() => setIsMobileDeviceView(prev => !prev)}
@@ -1333,6 +1384,7 @@ export const App: React.FC = () => {
           onOpenHandoverModal={b => setSelectedHandoverBooking(b)}
           onOpenExchangeModal={b => setSelectedExchangeBooking(b)}
           onOpenFinishModal={b => setSelectedFinishBooking(b)}
+          onUpdateBooking={handleUpdateBooking}
         />
       )}
     </div>

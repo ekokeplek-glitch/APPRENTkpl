@@ -5,6 +5,7 @@ import {
 } from '../types/ryoko';
 import { formatRupiah, calculateOvertimePenalty } from '../services/bookingEngine';
 import { copyText } from '../utils/clipboard';
+import { toWaNumber } from '../utils/phone';
 import {
   FileText,
   Copy,
@@ -123,9 +124,12 @@ export const DigitalReceiptModal: React.FC<DigitalReceiptModalProps> = ({
 
   const handleSendWhatsApp = () => {
     const text = generateReceiptText();
-    const cleanPhone = (booking.nomorWa || '').replace(/\D/g, '');
-    const phoneParam = cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : cleanPhone;
-    const url = `https://api.whatsapp.com/send?phone=${phoneParam}&text=${encodeURIComponent(text)}`;
+    const wa = toWaNumber(booking.nomorWa);
+    if (!wa) {
+      alert('Nomor WhatsApp penyewa tidak valid atau kosong.');
+      return;
+    }
+    const url = `https://api.whatsapp.com/send?phone=${encodeURIComponent(wa)}&text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
 

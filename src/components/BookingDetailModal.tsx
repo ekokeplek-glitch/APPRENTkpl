@@ -3,6 +3,8 @@ import {
   BookingRecord,
   RyokoDatabase,
   BookingStatus,
+  ReviewStatus,
+  OperationalOption,
 } from '../types/ryoko';
 import { formatRupiah, calculateOvertimePenalty } from '../services/bookingEngine';
 import {
@@ -52,6 +54,7 @@ interface BookingDetailModalProps {
   onOpenHandoverModal?: (booking: BookingRecord) => void;
   onOpenExchangeModal?: (booking: BookingRecord) => void;
   onOpenFinishModal?: (booking: BookingRecord) => void;
+  onUpdateBooking?: (updated: BookingRecord) => void;
 }
 
 export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
@@ -65,11 +68,25 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   onOpenHandoverModal,
   onOpenExchangeModal,
   onOpenFinishModal,
+  onUpdateBooking,
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<'detail' | 'quick_share'>(initialTab);
   const [activeShareTab, setActiveShareTab] = useState<QuickShareTab>(initialQuickShareTab);
   const [targetPhone, setTargetPhone] = useState<string>(() => booking.nomorWa || '');
   const [copiedSuccess, setCopiedSuccess] = useState(false);
+
+  // In-app Google Cloud review, operational option, and action state
+  const [editReviewStatus, setEditReviewStatus] = useState<ReviewStatus>(
+    () => booking.reviewStatus || (booking.status === 'ryokou_approved' || booking.status === 'ryokou_disewa' || booking.status === 'ryokou_selesai' ? 'APPROVED' : 'PENDING_REVIEW')
+  );
+  const [editOpsiTindakLanjut, setEditOpsiTindakLanjut] = useState<OperationalOption>(
+    () => booking.opsiTindakLanjut || (booking.status === 'ryokou_approved' ? 'Tugaskan Kurir Antar' : booking.status === 'ryokou_selesai' ? 'Selesai & Arsip' : 'Siapkan Unit Garasi')
+  );
+  const [editAksiTerakhir, setEditAksiTerakhir] = useState<string>(
+    () => booking.aksiTerakhirDisetujui || ''
+  );
+  const [isSavingReview, setIsSavingReview] = useState(false);
+  const [savedNotice, setSavedNotice] = useState('');
 
   const motor = db.motors.find(m => m.id === booking.motorId);
   const unit = db.units.find(u => u.id === booking.unitId);
@@ -151,6 +168,23 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
 
   const handleSendWhatsApp = () => {
     window.open(currentShareUrl, '_blank');
+  };
+
+  const handleSaveReviewAction = () => {
+    if (!onUpdateBooking) return;
+    setIsSavingReview(true);
+    const updated: BookingRecord = {
+      ...booking,
+      reviewStatus: editReviewStatus,
+      opsiTindakLanjut: editOpsiTindakLanjut,
+      aksiTerakhirDisetujui: editAksiTerakhir.trim() || undefined,
+    };
+    onUpdateBooking(updated);
+    setTimeout(() => {
+      setIsSavingReview(false);
+      setSavedNotice('Tersimpan & Disinkronkan!');
+      setTimeout(() => setSavedNotice(''), 3000);
+    }, 350);
   };
 
   return (
@@ -432,6 +466,124 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                               : penalty.nominalDenda || 0)
                         )}
                       </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section E: Status Review & Tindak Lanjut Google Cloud (Langsung dari App) */}
+                <div className="md:col-span-2 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-cyan-800/60 rounded-2xl p-3.5 sm:p-4 space-y-3.5 shadow-md">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-xl bg-cyan-950/80 border border-cyan-800/80 text-cyan-300">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-xs sm:text-sm flex items-center gap-2">
+                          <span>5. Status Review & Tindak Lanjut Google Cloud</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-300 font-mono">
+                            Otomatis ke Sheets
+                          </span>
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          Semua aksi dilakukan di aplikasi tanpa perlu membuka Google Sheets. Data otomatis tersimpan ke cloud.
+                        </p>
+                      </div>
+                    </div>
+                    {savedNotice && (
+                      <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/90 border border-emerald-800 px-2.5 py-1 rounded-lg animate-fadeIn flex items-center gap-1 shrink-0">
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{savedNotice}</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Review Status Picker */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-300 font-semibold text-[11px] block">
+                        Status Review Admin (Kolom W Sheets):
+                      </label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {(
+                          [
+                            { id: 'PENDING_REVIEW' as const, label: 'Menunggu', badge: 'bg-amber-950/70 border-amber-700 text-amber-300', dot: 'bg-amber-400' },
+                            { id: 'APPROVED' as const, label: 'Disetujui', badge: 'bg-emerald-950/70 border-emerald-700 text-emerald-300', dot: 'bg-emerald-400' },
+                            { id: 'NEED_DOCS' as const, label: 'Minta Dokumen', badge: 'bg-sky-950/70 border-sky-700 text-sky-300', dot: 'bg-sky-400' },
+                            { id: 'REJECTED' as const, label: 'Ditolak', badge: 'bg-rose-950/70 border-rose-700 text-rose-300', dot: 'bg-rose-400' },
+                          ]
+                        ).map(item => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setEditReviewStatus(item.id)}
+                            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                              editReviewStatus === item.id
+                                ? `${item.badge} ring-1 ring-cyan-400 shadow-xs`
+                                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${item.dot}`} />
+                            <span className="truncate">{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Opsi Tindak Lanjut Picker */}
+                    <div className="space-y-1.5">
+                      <label className="text-slate-300 font-semibold text-[11px] block">
+                        Opsi Tindak Lanjut Operasional (Kolom X):
+                      </label>
+                      <select
+                        value={editOpsiTindakLanjut}
+                        onChange={e => setEditOpsiTindakLanjut(e.target.value as OperationalOption)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                      >
+                        <option value="Siapkan Unit Garasi">1. Siapkan Unit Garasi</option>
+                        <option value="Tugaskan Kurir Antar">2. Tugaskan Kurir Antar</option>
+                        <option value="Kirim Tagihan DP">3. Kirim Tagihan & Pembayaran</option>
+                        <option value="Jadwalkan Servis Bengkel">4. Jadwalkan Servis Bengkel</option>
+                        <option value="Selesai & Arsip">5. Selesai & Arsip</option>
+                      </select>
+                      <p className="text-[10px] text-slate-400">
+                        Instruksi operasional yang dikomunikasikan ke tim lapangan.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Aksi Terakhir Disetujui / Catatan Operasional */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-slate-300 font-semibold text-[11px]">
+                        Aksi Terakhir Disetujui & Catatan (Kolom Y Google Sheets):
+                      </label>
+                      <span className="text-[10px] text-slate-400">Tersinkron otomatis</span>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={editAksiTerakhir}
+                        onChange={e => setEditAksiTerakhir(e.target.value)}
+                        placeholder="Contoh: Identitas lengkap & valid. Unit siap diantar ke tamu."
+                        className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                      />
+                      {onUpdateBooking && (
+                        <button
+                          type="button"
+                          onClick={handleSaveReviewAction}
+                          disabled={isSavingReview}
+                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-md shadow-cyan-950 cursor-pointer shrink-0 disabled:opacity-50"
+                        >
+                          {isSavingReview ? (
+                            <span>Menyimpan...</span>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Simpan & Sinkronkan</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

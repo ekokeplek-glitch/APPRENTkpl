@@ -6,25 +6,21 @@ import {
 } from '../types/ryoko';
 import { formatRupiah } from './bookingEngine';
 
+import { toWaNumber } from '../utils/phone';
+
 /**
- * Normalisasi nomor HP ke format internasional WhatsApp (628xxx)
+ * Normalisasi nomor HP ke format internasional WhatsApp (628xxx) (S11)
+ * Menggunakan Single Source of Truth toWaNumber tanpa fallback nomor dummy palsu
  */
-export function normalizeWhatsAppNumber(phone: string): string {
-  if (!phone) return '6281234567890';
-  let clean = phone.replace(/[^0-9]/g, '');
-  if (clean.startsWith('08')) {
-    clean = '62' + clean.slice(1);
-  } else if (!clean.startsWith('62') && clean.length > 5) {
-    clean = '62' + clean;
-  }
-  return clean || '6281234567890';
+export function normalizeWhatsAppNumber(phone: string | undefined | null): string {
+  return toWaNumber(phone) || '';
 }
 
 /**
  * Tautan WhatsApp generik dari nomor dan teks
  */
-export function generateWhatsAppLink(phone: string, text: string): string {
-  const target = normalizeWhatsAppNumber(phone);
+export function generateWhatsAppLink(phone: string | undefined | null, text: string): string {
+  const target = toWaNumber(phone) || '';
   return `https://api.whatsapp.com/send?phone=${encodeURIComponent(target)}&text=${encodeURIComponent(text)}`;
 }
 

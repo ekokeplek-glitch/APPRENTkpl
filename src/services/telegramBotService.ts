@@ -7,6 +7,7 @@
 
 import { BookingRecord, MotorModel, RyokoDatabase } from '../types/ryoko';
 import { CountdownUrgencyLevel } from '../utils/countdownHelper';
+import { toWaNumber } from '../utils/phone';
 
 export interface TelegramInlineKeyboardButton {
   text: string;
@@ -63,7 +64,7 @@ export function formatTelegramReturnAlertMessage(
 
 📋 <b>No. Booking:</b> <code>${escHtml(booking.noBooking)}</code>
 👤 <b>Penyewa:</b> ${escHtml(booking.nama)}
-📱 <b>Kontak WhatsApp:</b> +${escHtml(booking.nomorWa)}
+📱 <b>Kontak WhatsApp:</b> ${toWaNumber(booking.nomorWa) ? '+' + toWaNumber(booking.nomorWa) : escHtml(booking.nomorWa || '-')}
 🆘 <b>Kontak Darurat:</b> ${escHtml(booking.noTelpDarurat || '-')}
 📍 <b>Alamat Saat Ini:</b> ${escHtml(booking.alamatSaatIni || '-')}
 
@@ -91,8 +92,7 @@ Klik opsi tombol di bawah untuk respon instan tanpa webhook server.`;
  * Karena SPA berjalan tanpa webhook server publik, tombol aksi langsung membuka tautan responsif (WA & Maps).
  */
 export function createTelegramReturnActionButtons(booking: BookingRecord): TelegramInlineKeyboardMarkup {
-  const cleanPhone = (booking.nomorWa || '').replace(/[^0-9]/g, '');
-  const waTarget = cleanPhone.startsWith('08') ? '62' + cleanPhone.slice(1) : cleanPhone;
+  const waTarget = toWaNumber(booking.nomorWa) || '';
   const waText = encodeURIComponent(
     `Halo Kak ${booking.nama}, kami dari Ryoko Rent mengingatkan jadwal pengembalian unit ${booking.snapshotNamaMotor} (${booking.snapshotKodeUnit || ''}) tenggat ${booking.jamTanggalSelesai.replace('T', ' ')} WIB. Mohon persiapkan unit sewa ya Kak.`
   );

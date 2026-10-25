@@ -250,6 +250,13 @@ function upsertRow(sheet, row) {
   const handleSyncGoogleSheets = async () => {
     setIsSyncingSheets(true);
     setIntegrationStatus('Menyinkronkan transaksi ke Google Sheets...');
+    if (googleSheetsUrl.trim() && googleSheetsUrl.trim() !== db.settings.googleSheetsWebhookUrl) {
+      onUpdateSettings({
+        ...db.settings,
+        googleSheetsWebhookUrl: googleSheetsUrl.trim(),
+        autoSyncGoogleSheets: true,
+      });
+    }
     const res = await bulkSyncBookingsToGoogleSheets(db.bookings, googleSheetsUrl);
     setIsSyncingSheets(false);
     setIntegrationStatus(res.message);
